@@ -3,6 +3,7 @@ require("dotenv").config();
 
 const scrapeLogic = async (res) => {
   const browser = await puppeteer.launch({
+    headless: "new",
     args: [
       "--disable-setuid-sandbox",
       "--no-sandbox",
@@ -14,37 +15,25 @@ const scrapeLogic = async (res) => {
         ? process.env.PUPPETEER_EXECUTABLE_PATH
         : puppeteer.executablePath(),
   });
+
   try {
     const page = await browser.newPage();
+    const url = process.env.TARGET_URL || "https://www.imdb.com/title/tt27922706/"; // Replace with actual URL
+    await page.goto(url, { waitUntil: "domcontentloaded" });
 
-    await page.goto("https://developer.chrome.com/");
+    // Extract text inside the span with class "hero__primary-text"
+    const textSelector = '.hero__primary-text[data-testid="hero__primary-text"]';
+    await page.waitForSelector(textSelector);
 
-    // Set screen size
-    await page.setViewport({ width: 1080, height: 1024 });
+    const extractedText = await page.$eval(textSelector, (el) => el.textContent.trim());
 
-    // Type into search box
-    await page.type(".search-box__input", "automate beyond recorder");
-
-    // Wait and click on first result
-    const searchResultSelector = ".search-box__link";
-    await page.waitForSelector(searchResultSelector);
-    await page.click(searchResultSelector);
-
-    // Locate the full title with a unique string
-    const textSelector = await page.waitForSelector(
-      "text/Customize and automate"
-    );
-    const fullTitle = await textSelector.evaluate((el) => el.textContent);
-
-    // Print the full title
-    const logStatement = `The title of this blog post is ${fullTitle}`;
-    console.log(logStatement);
-    res.send(logStatement);
-  } catch (e) {
-    console.error(e);
-    res.send(`Something went wrong while running Puppeteer: ${e}`);
+    console.log(`Extracted Text: ${extractedText}`);
+    res.send(`Extracted Text: ${extractedText}`);
+  } catch (error) {
+    console.error("Puppeteer Error:", error);
+    res.status(500).send(`Error occurred: ${error.message}`);
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
   }
 };
 
