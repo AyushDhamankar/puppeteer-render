@@ -1,40 +1,61 @@
 const puppeteer = require("puppeteer");
 require("dotenv").config();
 
-const scrapeLogic = async (res) => {
+async function getRouteDetails(source, destination, mode) {
+  if (!source || !destination || !mode) {
+    throw new Error("Please provide source, destination, and mode");
+  }
+
   const browser = await puppeteer.launch({
     headless: "new",
-    args: [
-      "--disable-setuid-sandbox",
-      "--no-sandbox",
-      "--single-process",
-      "--no-zygote",
-    ],
-    executablePath:
-      process.env.NODE_ENV === "production"
-        ? process.env.PUPPETEER_EXECUTABLE_PATH
-        : puppeteer.executablePath(),
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
 
-  try {
-    const page = await browser.newPage();
-    const url = process.env.TARGET_URL || "https://www.imdb.com/title/tt27922706/"; // Replace with actual URL
-    await page.goto(url, { waitUntil: "domcontentloaded" });
+  const page = await browser.newPage();
 
-    // Extract text inside the span with class "hero__primary-text"
-    const textSelector = '.hero__primary-text[data-testid="hero__primary-text"]';
-    await page.waitForSelector(textSelector);
+  // Block unnecessary resources
+  await page.setRequestInterception(true);
+  page.on("request", (req) => {
+    if (["image", "stylesheet", "font"].includes(req.resourceType())) {
+      req.abort();
+    } else {
+      req.continue();
+    }
+  });
 
-    const extractedText = await page.$eval(textSelector, (el) => el.textContent.trim());
+  console.time("Page Load");
+  const mapsURL = `https://www.google.com/maps/dir/${encodeURIComponent(
+    source
+  )}/${encodeURIComponent(destination)}`;
+  await page.goto(mapsURL, { waitUntil: "domcontentloaded" });
 
-    console.log(`Extracted Text: ${extractedText}`);
-    res.send(`Extracted Text: ${extractedText}`);
-  } catch (error) {
-    console.error("Puppeteer Error:", error);
-    res.status(500).send(`Error occurred: ${error.message}`);
-  } finally {
-    if (browser) await browser.close();
-  }
-};
+  const routeDetails = await page.evaluate((mode) => {
+    let routeElements = document.querySelectorAll("div.UgZKXd.clearfix.yYG3jf");
 
-module.exports = { scrapeLogic };
+    for (let route of routeElements) {
+      let routeMode =
+        route
+          .querySelector(".Os0QJc.google-symbols")
+          ?.getAttribute("aria-label") || "Unknown";
+
+      if (routeMode.toLowerCase() === mode.toLowerCase()) {
+        return {
+          mode: routeMode,
+          time:
+            route.querySelector("div.Fk3sm.fontHeadlineSmall")?.innerText ||
+            "Not Found",
+          distance:
+            route.querySelector("div.ivN21e.tUEI8e.fontBodyMedium > div")
+              ?.innerText || "Not Found",
+        };
+      }
+    }
+    return { message: `No ${mode} route found` };
+  }, mode);
+
+  await browser.close();
+  console.timeEnd("Page Load");
+  return routeDetails;
+}
+
+module.exports = { getRouteDetails };
